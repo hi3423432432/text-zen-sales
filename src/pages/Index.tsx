@@ -1,14 +1,17 @@
 import { useState } from "react";
 import Hero from "@/components/Hero";
-import DemoInterface from "@/components/DemoInterface";
+import QuickPasteInterface from "@/components/QuickPasteInterface";
 
 const Index = () => {
-  const [showDemo, setShowDemo] = useState(false);
+  const [showApp, setShowApp] = useState(false);
+
+  if (showApp) {
+    return <QuickPasteInterface />;
+  }
 
   return (
     <div className="min-h-screen bg-background">
-      <Hero onTryDemo={() => setShowDemo(true)} />
-      {showDemo && <DemoInterface />}
+      <Hero onTryDemo={() => setShowApp(true)} />
     </div>
   );
 };
