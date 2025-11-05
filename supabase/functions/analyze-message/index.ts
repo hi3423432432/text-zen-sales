@@ -11,8 +11,8 @@ serve(async (req) => {
   }
 
   try {
-    const { message, tone = 'professional' } = await req.json();
-    console.log('Analyzing message:', message, 'with tone:', tone);
+    const { message, image, tone = 'professional' } = await req.json();
+    console.log('Analyzing message:', message, 'has image:', !!image, 'with tone:', tone);
 
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
     if (!LOVABLE_API_KEY) {
@@ -70,7 +70,24 @@ Return JSON:
     "friendly": "warm engaging reply",
     "confident": "assertive value-driven reply"
   }
-}`;
+ }`;
+
+    let userContent;
+    if (image) {
+      // If image is provided, use vision capability to extract text from image
+      userContent = [
+        { 
+          type: "text", 
+          text: message ? `Extract and analyze text from the image. Additional context: ${message}` : "Extract and analyze all text visible in this image." 
+        },
+        { 
+          type: "image_url", 
+          image_url: { url: image } 
+        }
+      ];
+    } else {
+      userContent = `Analyze this client message and suggest replies: "${message}"`;
+    }
 
     const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
@@ -82,7 +99,7 @@ Return JSON:
         model: 'google/gemini-2.5-flash',
         messages: [
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: `Analyze this client message and suggest replies: "${message}"` }
+          { role: 'user', content: userContent }
         ],
         response_format: { type: "json_object" }
       }),

@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Copy, CheckCircle2, Zap, History, Command } from "lucide-react";
+import { Loader2, Copy, CheckCircle2, Zap, History, Command, Camera, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
@@ -34,7 +34,9 @@ const QuickPasteInterface = () => {
   const [autoAnalyze, setAutoAnalyze] = useState(false);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
   // Auto-focus on mount
@@ -62,10 +64,10 @@ const QuickPasteInterface = () => {
   }, [clientMessage]);
 
   const handleAnalyze = async () => {
-    if (!clientMessage.trim()) {
+    if (!clientMessage.trim() && !selectedImage) {
       toast({
-        title: "Please enter a message",
-        description: "Paste a client message to analyze",
+        title: "Please enter a message or upload an image",
+        description: "Paste a client message or upload a screenshot to analyze",
         variant: "destructive"
       });
       return;
@@ -76,7 +78,10 @@ const QuickPasteInterface = () => {
 
     try {
       const { data, error } = await supabase.functions.invoke('analyze-message', {
-        body: { message: clientMessage }
+        body: { 
+          message: clientMessage,
+          image: selectedImage
+        }
       });
 
       if (error) throw error;
@@ -86,7 +91,7 @@ const QuickPasteInterface = () => {
       // Add to history
       const newHistoryItem: HistoryItem = {
         id: Date.now().toString(),
-        message: clientMessage,
+        message: selectedImage ? "📸 Screenshot message" : clientMessage,
         analysis: data,
         timestamp: new Date()
       };
@@ -135,6 +140,30 @@ const QuickPasteInterface = () => {
       case 'opportunity': return 'bg-primary text-primary-foreground';
       default: return 'bg-muted text-muted-foreground';
     }
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast({
+        title: "File too large",
+        description: "Please upload an image smaller than 5MB",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setSelectedImage(reader.result as string);
+      toast({
+        title: "Image uploaded",
+        description: "Ready to analyze the text in the image"
+      });
+    };
+    reader.readAsDataURL(file);
   };
 
   const loadFromHistory = (item: HistoryItem) => {
@@ -213,22 +242,61 @@ const QuickPasteInterface = () => {
             <Label className="mb-2 block text-sm font-medium text-foreground">
               Client Message from WhatsApp
             </Label>
+            
+            {selectedImage && (
+              <div className="relative mb-3 rounded-lg border bg-muted/30 p-2">
+                <img 
+                  src={selectedImage} 
+                  alt="Screenshot to analyze" 
+                  className="max-h-48 w-full rounded object-contain"
+                />
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="absolute right-3 top-3"
+                  onClick={() => setSelectedImage(null)}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
+
             <Textarea
               ref={textareaRef}
-              placeholder="Paste message here... (it will auto-focus when you press Ctrl+Shift+V)"
+              placeholder="Paste message here or upload a screenshot... (Ctrl+Shift+V to focus)"
               value={clientMessage}
               onChange={(e) => setClientMessage(e.target.value)}
               onPaste={handlePaste}
               className="mb-3 min-h-[200px] focus-visible:ring-primary"
             />
-            <Button
-              onClick={handleAnalyze}
-              disabled={isAnalyzing}
-              className="w-full bg-primary hover:bg-primary-hover text-primary-foreground"
-            >
-              {isAnalyzing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {isAnalyzing ? 'Analyzing...' : 'Analyze Message'}
-            </Button>
+            
+            <div className="flex gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={handleImageUpload}
+                className="hidden"
+              />
+              <Button
+                onClick={() => fileInputRef.current?.click()}
+                variant="outline"
+                disabled={isAnalyzing}
+                className="flex-1"
+              >
+                <Camera className="mr-2 h-4 w-4" />
+                Upload Screenshot
+              </Button>
+              <Button
+                onClick={handleAnalyze}
+                disabled={isAnalyzing}
+                className="flex-1 bg-primary hover:bg-primary-hover text-primary-foreground"
+              >
+                {isAnalyzing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {isAnalyzing ? 'Analyzing...' : 'Analyze'}
+              </Button>
+            </div>
           </Card>
 
           {/* Sentiment & Key Points */}
