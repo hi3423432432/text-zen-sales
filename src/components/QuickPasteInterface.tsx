@@ -132,6 +132,7 @@ const QuickPasteInterface = () => {
       case 'positive': return 'bg-success text-success-foreground';
       case 'negative': return 'bg-destructive text-destructive-foreground';
       case 'urgent': return 'bg-orange-500 text-white';
+      case 'opportunity': return 'bg-primary text-primary-foreground';
       default: return 'bg-muted text-muted-foreground';
     }
   };
