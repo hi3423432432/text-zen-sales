@@ -11,15 +11,24 @@ serve(async (req) => {
   }
 
   try {
-    const { message, image, tone = 'professional' } = await req.json();
-    console.log('Analyzing message:', message, 'has image:', !!image, 'with tone:', tone);
+    const { message, image, tone = 'professional', language = 'english' } = await req.json();
+    console.log('Analyzing message:', message, 'has image:', !!image, 'with tone:', tone, 'language:', language);
 
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
     if (!LOVABLE_API_KEY) {
       throw new Error('LOVABLE_API_KEY is not configured');
     }
 
+    const languageInstructions = {
+      english: 'Respond in English.',
+      cantonese: 'Respond in Traditional Chinese using Cantonese expressions and colloquialisms (粵語).',
+      chinese_traditional: 'Respond in Traditional Chinese (繁體中文).',
+      chinese_simplified: 'Respond in Simplified Chinese (简体中文).'
+    };
+
     const systemPrompt = `You are an elite sales communication specialist with expertise in customer psychology and conversion optimization. 
+
+${languageInstructions[language as keyof typeof languageInstructions] || languageInstructions.english}
 
 ANALYSIS REQUIREMENTS:
 1. Sentiment Detection: Classify as positive, neutral, negative, urgent, or opportunity

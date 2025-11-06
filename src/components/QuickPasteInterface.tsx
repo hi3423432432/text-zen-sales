@@ -8,6 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface AnalysisResult {
   sentiment: string;
@@ -35,6 +36,7 @@ const QuickPasteInterface = () => {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [language, setLanguage] = useState<string>("english");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -80,7 +82,8 @@ const QuickPasteInterface = () => {
       const { data, error } = await supabase.functions.invoke('analyze-message', {
         body: { 
           message: clientMessage,
-          image: selectedImage
+          image: selectedImage,
+          language
         }
       });
 
@@ -196,6 +199,22 @@ const QuickPasteInterface = () => {
               Auto-analyze on paste
             </Label>
           </div>
+          
+          <div className="flex items-center gap-2">
+            <Label htmlFor="language-select" className="text-sm">Language:</Label>
+            <Select value={language} onValueChange={setLanguage}>
+              <SelectTrigger id="language-select" className="w-[180px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="english">English</SelectItem>
+                <SelectItem value="cantonese">粵語 (Cantonese)</SelectItem>
+                <SelectItem value="chinese_traditional">繁體中文</SelectItem>
+                <SelectItem value="chinese_simplified">简体中文</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          
           <Button
             variant="outline"
             size="sm"
