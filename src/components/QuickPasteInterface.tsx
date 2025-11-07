@@ -3,12 +3,18 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, Copy, CheckCircle2, Zap, History, Command, Camera, X } from "lucide-react";
+import { Loader2, Copy, CheckCircle2, Zap, History, Command, Camera, X, MessageSquarePlus, Sparkles } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+interface ConversationMessage {
+  role: 'client' | 'agent';
+  content: string;
+  timestamp: Date;
+}
 
 interface AnalysisResult {
   sentiment: string;
@@ -18,6 +24,8 @@ interface AnalysisResult {
     friendly: string;
     confident: string;
   };
+  followUpSuggestions?: string[];
+  conversationInsights?: string;
 }
 
 interface HistoryItem {
@@ -25,6 +33,7 @@ interface HistoryItem {
   message: string;
   analysis: AnalysisResult;
   timestamp: Date;
+  conversation?: ConversationMessage[];
 }
 
 const QuickPasteInterface = () => {
@@ -37,6 +46,9 @@ const QuickPasteInterface = () => {
   const [showHistory, setShowHistory] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [language, setLanguage] = useState<string>("english");
+  const [persona, setPersona] = useState<string>("professional");
+  const [conversation, setConversation] = useState<ConversationMessage[]>([]);
+  const [showConversationContext, setShowConversationContext] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -83,7 +95,9 @@ const QuickPasteInterface = () => {
         body: { 
           message: clientMessage,
           image: selectedImage,
-          language
+          language,
+          persona,
+          conversationHistory: conversation.length > 0 ? conversation : undefined
         }
       });
 
@@ -91,18 +105,27 @@ const QuickPasteInterface = () => {
 
       setAnalysis(data);
       
+      // Add current message to conversation
+      const newMessage: ConversationMessage = {
+        role: 'client',
+        content: selectedImage ? "📸 Screenshot message" : clientMessage,
+        timestamp: new Date()
+      };
+      setConversation(prev => [...prev, newMessage]);
+      
       // Add to history
       const newHistoryItem: HistoryItem = {
         id: Date.now().toString(),
         message: selectedImage ? "📸 Screenshot message" : clientMessage,
         analysis: data,
-        timestamp: new Date()
+        timestamp: new Date(),
+        conversation: [...conversation, newMessage]
       };
       setHistory(prev => [newHistoryItem, ...prev].slice(0, 10)); // Keep last 10
 
       toast({
         title: "✨ Analysis complete!",
-        description: "Choose your preferred reply"
+        description: data.followUpSuggestions ? "Reply suggestions with follow-up insights" : "Choose your preferred reply"
       });
     } catch (error) {
       console.error('Error analyzing message:', error);
@@ -114,6 +137,27 @@ const QuickPasteInterface = () => {
     } finally {
       setIsAnalyzing(false);
     }
+  };
+
+  const addToConversation = (reply: string) => {
+    const agentMessage: ConversationMessage = {
+      role: 'agent',
+      content: reply,
+      timestamp: new Date()
+    };
+    setConversation(prev => [...prev, agentMessage]);
+    toast({
+      title: "Added to conversation",
+      description: "This reply will be used for context in the next analysis"
+    });
+  };
+
+  const clearConversation = () => {
+    setConversation([]);
+    toast({
+      title: "Conversation cleared",
+      description: "Starting fresh with no context"
+    });
   };
 
   const handlePaste = (e: React.ClipboardEvent) => {
@@ -172,6 +216,7 @@ const QuickPasteInterface = () => {
   const loadFromHistory = (item: HistoryItem) => {
     setClientMessage(item.message);
     setAnalysis(item.analysis);
+    setConversation(item.conversation || []);
     setShowHistory(false);
     textareaRef.current?.focus();
   };
@@ -179,31 +224,61 @@ const QuickPasteInterface = () => {
   return (
     <div className="container mx-auto max-w-6xl px-4 py-8">
       {/* Header with controls */}
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Quick Paste Analysis</h1>
-          <p className="text-sm text-muted-foreground">
-            <Command className="mr-1 inline h-3 w-3" />
-            Press <kbd className="rounded bg-muted px-1.5 py-0.5 text-xs">Ctrl+Enter</kbd> to analyze
-          </p>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <Switch
-              id="auto-analyze"
-              checked={autoAnalyze}
-              onCheckedChange={setAutoAnalyze}
-            />
-            <Label htmlFor="auto-analyze" className="text-sm">
-              <Zap className="mr-1 inline h-4 w-4 text-primary" />
-              Auto-analyze on paste
-            </Label>
+      <div className="mb-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">Quick Paste Analysis</h1>
+            <p className="text-sm text-muted-foreground">
+              <Command className="mr-1 inline h-3 w-3" />
+              Press <kbd className="rounded bg-muted px-1.5 py-0.5 text-xs">Ctrl+Enter</kbd> to analyze
+            </p>
           </div>
-          
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <Switch
+                id="auto-analyze"
+                checked={autoAnalyze}
+                onCheckedChange={setAutoAnalyze}
+              />
+              <Label htmlFor="auto-analyze" className="text-sm">
+                <Zap className="mr-1 inline h-4 w-4 text-primary" />
+                Auto-analyze
+              </Label>
+            </div>
+            
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowHistory(!showHistory)}
+            >
+              <History className="mr-2 h-4 w-4" />
+              History ({history.length})
+            </Button>
+          </div>
+        </div>
+
+        {/* AI Settings */}
+        <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <Label htmlFor="language-select" className="text-sm">Language:</Label>
+            <Label htmlFor="persona-select" className="text-sm font-medium">AI Persona:</Label>
+            <Select value={persona} onValueChange={setPersona}>
+              <SelectTrigger id="persona-select" className="w-[160px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="professional">🎯 Professional</SelectItem>
+                <SelectItem value="enterprise">💼 Enterprise Sales</SelectItem>
+                <SelectItem value="smb">🚀 SMB/Startup</SelectItem>
+                <SelectItem value="support">🛠️ Customer Support</SelectItem>
+                <SelectItem value="luxury">✨ Luxury/Premium</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Label htmlFor="language-select" className="text-sm font-medium">Language:</Label>
             <Select value={language} onValueChange={setLanguage}>
-              <SelectTrigger id="language-select" className="w-[180px]">
+              <SelectTrigger id="language-select" className="w-[160px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -214,16 +289,54 @@ const QuickPasteInterface = () => {
               </SelectContent>
             </Select>
           </div>
-          
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowHistory(!showHistory)}
-          >
-            <History className="mr-2 h-4 w-4" />
-            History ({history.length})
-          </Button>
+
+          {conversation.length > 0 && (
+            <div className="flex items-center gap-2 ml-auto">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowConversationContext(!showConversationContext)}
+              >
+                <MessageSquarePlus className="mr-2 h-4 w-4" />
+                Conversation ({conversation.length})
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={clearConversation}
+              >
+                Clear
+              </Button>
+            </div>
+          )}
         </div>
+
+        {/* Conversation Context Panel */}
+        {showConversationContext && conversation.length > 0 && (
+          <Card className="p-4 bg-muted/30">
+            <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+              <MessageSquarePlus className="h-4 w-4" />
+              Conversation Context
+            </h3>
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {conversation.map((msg, idx) => (
+                <div 
+                  key={idx} 
+                  className={`text-xs p-2 rounded ${
+                    msg.role === 'client' 
+                      ? 'bg-primary/10 text-foreground border-l-2 border-primary' 
+                      : 'bg-success/10 text-foreground border-l-2 border-success'
+                  }`}
+                >
+                  <div className="font-semibold mb-1">
+                    {msg.role === 'client' ? '👤 Client' : '🤝 You'}
+                  </div>
+                  <div className="line-clamp-2">{msg.content}</div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
       </div>
 
       {/* History Panel */}
@@ -319,25 +432,56 @@ const QuickPasteInterface = () => {
 
           {/* Sentiment & Key Points */}
           {analysis && (
-            <Card className="animate-in fade-in slide-in-from-left-4 p-4">
-              <div className="mb-4 flex items-center gap-3">
-                <span className="text-sm font-medium text-foreground">Sentiment:</span>
-                <Badge className={getSentimentColor(analysis.sentiment)}>
-                  {analysis.sentiment.toUpperCase()}
-                </Badge>
-              </div>
-              <div>
-                <h3 className="mb-3 text-sm font-medium text-foreground">Key Points:</h3>
-                <ul className="space-y-2">
-                  {analysis.keyPoints.map((point, index) => (
-                    <li key={index} className="flex items-start gap-2 text-sm text-muted-foreground">
-                      <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-success" />
-                      {point}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </Card>
+            <div className="space-y-4">
+              <Card className="animate-in fade-in slide-in-from-left-4 p-4">
+                <div className="mb-4 flex items-center gap-3">
+                  <span className="text-sm font-medium text-foreground">Sentiment:</span>
+                  <Badge className={getSentimentColor(analysis.sentiment)}>
+                    {analysis.sentiment.toUpperCase()}
+                  </Badge>
+                </div>
+                <div>
+                  <h3 className="mb-3 text-sm font-medium text-foreground">Key Points:</h3>
+                  <ul className="space-y-2">
+                    {analysis.keyPoints.map((point, index) => (
+                      <li key={index} className="flex items-start gap-2 text-sm text-muted-foreground">
+                        <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-success" />
+                        {point}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </Card>
+
+              {analysis.conversationInsights && (
+                <Card className="animate-in fade-in slide-in-from-left-4 p-4 bg-primary/5 border-primary/20">
+                  <h3 className="mb-2 text-sm font-semibold text-foreground flex items-center gap-2">
+                    <Sparkles className="h-4 w-4 text-primary" />
+                    Conversation Insights
+                  </h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    {analysis.conversationInsights}
+                  </p>
+                </Card>
+              )}
+
+              {analysis.followUpSuggestions && analysis.followUpSuggestions.length > 0 && (
+                <Card className="animate-in fade-in slide-in-from-left-4 p-4 bg-success/5 border-success/20">
+                  <h3 className="mb-3 text-sm font-semibold text-foreground flex items-center gap-2">
+                    <MessageSquarePlus className="h-4 w-4 text-success" />
+                    Follow-up Strategies
+                  </h3>
+                  <ul className="space-y-2">
+                    {analysis.followUpSuggestions.map((suggestion, index) => (
+                      <li key={index} className="flex items-start gap-2 text-sm text-muted-foreground">
+                        <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-success" />
+                        {suggestion}
+                      </li>
+                    ))}
+                  </ul>
+                </Card>
+              )}
+            </div>
           )}
         </div>
 
@@ -354,23 +498,34 @@ const QuickPasteInterface = () => {
                     <Badge variant="outline" className="capitalize text-sm font-medium">
                       {tone}
                     </Badge>
-                    <Button
-                      size="sm"
-                      onClick={() => copyToClipboard(reply, tone)}
-                      className="bg-primary hover:bg-primary-hover text-primary-foreground"
-                    >
-                      {copiedReply === tone ? (
-                        <>
-                          <CheckCircle2 className="mr-2 h-4 w-4" />
-                          Copied
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="mr-2 h-4 w-4" />
-                          Copy
-                        </>
-                      )}
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => addToConversation(reply)}
+                        disabled={conversation.length >= 20}
+                      >
+                        <MessageSquarePlus className="mr-2 h-4 w-4" />
+                        Add to Thread
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => copyToClipboard(reply, tone)}
+                        className="bg-primary hover:bg-primary-hover text-primary-foreground"
+                      >
+                        {copiedReply === tone ? (
+                          <>
+                            <CheckCircle2 className="mr-2 h-4 w-4" />
+                            Copied
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="mr-2 h-4 w-4" />
+                            Copy
+                          </>
+                        )}
+                      </Button>
+                    </div>
                   </div>
                   <p className="text-sm leading-relaxed text-muted-foreground">{reply}</p>
                 </Card>

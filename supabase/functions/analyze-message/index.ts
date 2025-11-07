@@ -11,8 +11,8 @@ serve(async (req) => {
   }
 
   try {
-    const { message, image, tone = 'professional', language = 'english' } = await req.json();
-    console.log('Analyzing message:', message, 'has image:', !!image, 'with tone:', tone, 'language:', language);
+    const { message, image, tone = 'professional', language = 'english', persona = 'professional', conversationHistory } = await req.json();
+    console.log('Analyzing message:', message, 'has image:', !!image, 'with tone:', tone, 'language:', language, 'persona:', persona, 'has conversation:', !!conversationHistory);
 
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
     if (!LOVABLE_API_KEY) {
@@ -26,9 +26,36 @@ serve(async (req) => {
       chinese_simplified: 'Respond in Simplified Chinese (简体中文).'
     };
 
+    const personaInstructions = {
+      professional: 'General B2B sales approach with balanced professionalism.',
+      enterprise: 'Enterprise sales focus: emphasize ROI, scalability, compliance, long-term value, and stakeholder management. Use formal language and demonstrate deep industry expertise.',
+      smb: 'SMB/Startup approach: focus on quick wins, cost-effectiveness, ease of implementation, and growth potential. Be more casual and action-oriented.',
+      support: 'Customer support mode: prioritize empathy, problem-solving, retention, and satisfaction. Address concerns proactively and build trust.',
+      luxury: 'Luxury/Premium sales: emphasize exclusivity, prestige, personalized service, and superior quality. Use sophisticated language and create desire.'
+    };
+
     const systemPrompt = `You are an elite sales communication specialist with expertise in customer psychology and conversion optimization. 
 
 ${languageInstructions[language as keyof typeof languageInstructions] || languageInstructions.english}
+
+PERSONA CONTEXT: ${personaInstructions[persona as keyof typeof personaInstructions] || personaInstructions.professional}
+
+${conversationHistory ? `
+CONVERSATION CONTEXT ANALYSIS:
+You have access to the full conversation thread. Analyze:
+1. Relationship progression and rapport level
+2. Previously discussed topics and commitments
+3. Client's evolving needs and objections
+4. Response patterns and engagement level
+5. Best timing and approach for follow-up
+
+Use this context to:
+- Reference previous discussion points naturally
+- Track promise/commitment fulfillment
+- Identify patterns in client behavior
+- Suggest strategic follow-up timing
+- Personalize based on conversation history
+` : ''}
 
 ANALYSIS REQUIREMENTS:
 1. Sentiment Detection: Classify as positive, neutral, negative, urgent, or opportunity
@@ -69,6 +96,24 @@ REPLY GUIDELINES:
 - Address specific points they raised
 - Use emojis sparingly and appropriately
 - Provide value in every message
+${conversationHistory ? '- Reference conversation history naturally when relevant' : ''}
+
+${conversationHistory ? `
+FOLLOW-UP STRATEGY:
+Generate 3-5 actionable follow-up suggestions based on:
+- Client's responsiveness pattern
+- Current stage in sales cycle
+- Objections or hesitations shown
+- Engagement level and interest signals
+- Best next steps to move forward
+
+CONVERSATION INSIGHTS:
+Provide a brief analysis (2-3 sentences) of:
+- Overall conversation health and momentum
+- Client's buying readiness
+- Key concerns to address
+- Relationship status
+` : ''}
 
 Return JSON:
 {
@@ -78,16 +123,22 @@ Return JSON:
     "professional": "strategic professional reply",
     "friendly": "warm engaging reply",
     "confident": "assertive value-driven reply"
-  }
+  }${conversationHistory ? `,
+  "followUpSuggestions": ["specific follow-up action 1", "specific follow-up action 2", "..."],
+  "conversationInsights": "brief analysis of conversation health and next steps"` : ''}
  }`;
 
     let userContent;
     if (image) {
       // If image is provided, use vision capability to extract text from image
+      const contextInfo = conversationHistory 
+        ? `Conversation history: ${JSON.stringify(conversationHistory)}. Current message/image context: ${message || 'Analyze screenshot'}`
+        : message || 'Analyze screenshot';
+      
       userContent = [
         { 
           type: "text", 
-          text: message ? `Extract and analyze text from the image. Additional context: ${message}` : "Extract and analyze all text visible in this image." 
+          text: `Extract and analyze text from the image. ${contextInfo}` 
         },
         { 
           type: "image_url", 
@@ -95,7 +146,11 @@ Return JSON:
         }
       ];
     } else {
-      userContent = `Analyze this client message and suggest replies: "${message}"`;
+      const conversationContext = conversationHistory 
+        ? `Conversation history:\n${conversationHistory.map((msg: any) => `${msg.role}: ${msg.content}`).join('\n')}\n\nLatest client message: "${message}"`
+        : `Analyze this client message and suggest replies: "${message}"`;
+      
+      userContent = conversationContext;
     }
 
     const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
