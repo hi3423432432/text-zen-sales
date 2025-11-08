@@ -9,6 +9,9 @@ import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ClientManager } from "./ClientManager";
+import { PersonaManager } from "./PersonaManager";
+import { ConversationHistory } from "./ConversationHistory";
 
 interface ConversationMessage {
   role: 'client' | 'agent';
@@ -49,9 +52,33 @@ const QuickPasteInterface = () => {
   const [persona, setPersona] = useState<string>("professional");
   const [conversation, setConversation] = useState<ConversationMessage[]>([]);
   const [showConversationContext, setShowConversationContext] = useState(false);
+  const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+  const [customPersonaInstructions, setCustomPersonaInstructions] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+
+  // Fetch custom persona instructions when persona changes
+  useEffect(() => {
+    if (persona.startsWith('custom:')) {
+      const personaId = persona.split(':')[1];
+      fetchCustomPersonaInstructions(personaId);
+    } else {
+      setCustomPersonaInstructions(null);
+    }
+  }, [persona]);
+
+  const fetchCustomPersonaInstructions = async (personaId: string) => {
+    const { data, error } = await supabase
+      .from("custom_personas")
+      .select("system_instructions")
+      .eq("id", personaId)
+      .single();
+
+    if (!error && data) {
+      setCustomPersonaInstructions(data.system_instructions);
+    }
+  };
 
   // Auto-focus on mount
   useEffect(() => {
@@ -87,16 +114,39 @@ const QuickPasteInterface = () => {
       return;
     }
 
+    if (!selectedClientId) {
+      toast({
+        title: "Please select a client first",
+        description: "Choose a client to save conversation history",
+        variant: "destructive"
+      });
+      return;
+    }
+
     setIsAnalyzing(true);
     setAnalysis(null);
 
     try {
+      // Save client message to database
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        await supabase.from("conversations").insert({
+          user_id: user.id,
+          client_id: selectedClientId,
+          role: "user",
+          content: clientMessage,
+          image_url: selectedImage,
+        });
+      }
+
+      const effectivePersona = persona.startsWith('custom:') ? 'custom' : persona;
       const { data, error } = await supabase.functions.invoke('analyze-message', {
         body: { 
           message: clientMessage,
           image: selectedImage,
           language,
-          persona,
+          persona: effectivePersona,
+          customPersonaInstructions: customPersonaInstructions,
           conversationHistory: conversation.length > 0 ? conversation : undefined
         }
       });
@@ -112,6 +162,19 @@ const QuickPasteInterface = () => {
         timestamp: new Date()
       };
       setConversation(prev => [...prev, newMessage]);
+      
+      // Save AI analysis to database
+      if (user && data) {
+        await supabase.from("conversation_analyses").insert({
+          user_id: user.id,
+          client_id: selectedClientId,
+          sentiment: data.sentiment,
+          key_points: data.keyPoints,
+          suggested_replies: data.suggestedReplies,
+          follow_up_suggestions: data.followUpSuggestions,
+          insights: data.conversationInsights,
+        });
+      }
       
       // Add to history
       const newHistoryItem: HistoryItem = {
@@ -139,13 +202,25 @@ const QuickPasteInterface = () => {
     }
   };
 
-  const addToConversation = (reply: string) => {
+  const addToConversation = async (reply: string) => {
     const agentMessage: ConversationMessage = {
       role: 'agent',
       content: reply,
       timestamp: new Date()
     };
     setConversation(prev => [...prev, agentMessage]);
+    
+    // Save agent reply to database
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user && selectedClientId) {
+      await supabase.from("conversations").insert({
+        user_id: user.id,
+        client_id: selectedClientId,
+        role: "agent",
+        content: reply,
+      });
+    }
+    
     toast({
       title: "Added to conversation",
       description: "This reply will be used for context in the next analysis"
@@ -223,6 +298,23 @@ const QuickPasteInterface = () => {
 
   return (
     <div className="container mx-auto max-w-6xl px-4 py-8">
+      {/* Client and Persona Managers */}
+      <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+        <ClientManager 
+          selectedClientId={selectedClientId}
+          onClientSelect={setSelectedClientId}
+        />
+        <PersonaManager 
+          selectedPersona={persona}
+          onPersonaSelect={setPersona}
+        />
+      </div>
+
+      {/* Conversation History */}
+      <div className="mb-6">
+        <ConversationHistory clientId={selectedClientId} />
+      </div>
+
       {/* Header with controls */}
       <div className="mb-6 space-y-4">
         <div className="flex items-center justify-between">
@@ -257,24 +349,8 @@ const QuickPasteInterface = () => {
           </div>
         </div>
 
-        {/* AI Settings */}
+        {/* Language Settings */}
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <Label htmlFor="persona-select" className="text-sm font-medium">AI Persona:</Label>
-            <Select value={persona} onValueChange={setPersona}>
-              <SelectTrigger id="persona-select" className="w-[160px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="professional">🎯 Professional</SelectItem>
-                <SelectItem value="enterprise">💼 Enterprise Sales</SelectItem>
-                <SelectItem value="smb">🚀 SMB/Startup</SelectItem>
-                <SelectItem value="support">🛠️ Customer Support</SelectItem>
-                <SelectItem value="luxury">✨ Luxury/Premium</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
           <div className="flex items-center gap-2">
             <Label htmlFor="language-select" className="text-sm font-medium">Language:</Label>
             <Select value={language} onValueChange={setLanguage}>

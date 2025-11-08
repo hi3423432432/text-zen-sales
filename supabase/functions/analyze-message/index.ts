@@ -11,8 +11,8 @@ serve(async (req) => {
   }
 
   try {
-    const { message, image, tone = 'professional', language = 'english', persona = 'professional', conversationHistory } = await req.json();
-    console.log('Analyzing message:', message, 'has image:', !!image, 'with tone:', tone, 'language:', language, 'persona:', persona, 'has conversation:', !!conversationHistory);
+    const { message, image, tone = 'professional', language = 'english', persona = 'professional', customPersonaInstructions, conversationHistory } = await req.json();
+    console.log('Analyzing message:', message, 'has image:', !!image, 'with tone:', tone, 'language:', language, 'persona:', persona, 'custom instructions:', !!customPersonaInstructions, 'has conversation:', !!conversationHistory);
 
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
     if (!LOVABLE_API_KEY) {
@@ -38,7 +38,7 @@ serve(async (req) => {
 
 ${languageInstructions[language as keyof typeof languageInstructions] || languageInstructions.english}
 
-PERSONA CONTEXT: ${personaInstructions[persona as keyof typeof personaInstructions] || personaInstructions.professional}
+PERSONA CONTEXT: ${customPersonaInstructions || personaInstructions[persona as keyof typeof personaInstructions] || personaInstructions.professional}
 
 ${conversationHistory ? `
 CONVERSATION CONTEXT ANALYSIS:
