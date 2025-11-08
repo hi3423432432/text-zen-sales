@@ -14,7 +14,164 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      clients: {
+        Row: {
+          created_at: string
+          email: string | null
+          id: string
+          name: string
+          notes: string | null
+          phone: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          email?: string | null
+          id?: string
+          name: string
+          notes?: string | null
+          phone?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          email?: string | null
+          id?: string
+          name?: string
+          notes?: string | null
+          phone?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      conversation_analyses: {
+        Row: {
+          client_id: string
+          conversation_id: string | null
+          created_at: string
+          follow_up_suggestions: Json | null
+          id: string
+          insights: string | null
+          key_points: Json | null
+          sentiment: string
+          success_score: number | null
+          suggested_replies: Json | null
+          user_id: string
+        }
+        Insert: {
+          client_id: string
+          conversation_id?: string | null
+          created_at?: string
+          follow_up_suggestions?: Json | null
+          id?: string
+          insights?: string | null
+          key_points?: Json | null
+          sentiment: string
+          success_score?: number | null
+          suggested_replies?: Json | null
+          user_id: string
+        }
+        Update: {
+          client_id?: string
+          conversation_id?: string | null
+          created_at?: string
+          follow_up_suggestions?: Json | null
+          id?: string
+          insights?: string | null
+          key_points?: Json | null
+          sentiment?: string
+          success_score?: number | null
+          suggested_replies?: Json | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversation_analyses_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conversation_analyses_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      conversations: {
+        Row: {
+          client_id: string
+          content: string
+          created_at: string
+          id: string
+          image_url: string | null
+          role: string
+          user_id: string
+        }
+        Insert: {
+          client_id: string
+          content: string
+          created_at?: string
+          id?: string
+          image_url?: string | null
+          role: string
+          user_id: string
+        }
+        Update: {
+          client_id?: string
+          content?: string
+          created_at?: string
+          id?: string
+          image_url?: string | null
+          role?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversations_client_id_fkey"
+            columns: ["client_id"]
+            isOneToOne: false
+            referencedRelation: "clients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      custom_personas: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          name: string
+          system_instructions: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name: string
+          system_instructions: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name?: string
+          system_instructions?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
