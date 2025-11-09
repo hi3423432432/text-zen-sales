@@ -12,8 +12,19 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "./ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "./ui/alert-dialog";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
-import { Plus, Users } from "lucide-react";
+import { Plus, Users, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 interface Client {
@@ -33,6 +44,7 @@ interface ClientManagerProps {
 export function ClientManager({ selectedClientId, onClientSelect }: ClientManagerProps) {
   const [clients, setClients] = useState<Client[]>([]);
   const [isOpen, setIsOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -86,6 +98,30 @@ export function ClientManager({ selectedClientId, onClientSelect }: ClientManage
     setFormData({ name: "", email: "", phone: "", notes: "" });
     fetchClients();
   };
+
+  const handleDelete = async (clientId: string) => {
+    const { error } = await supabase
+      .from("clients")
+      .delete()
+      .eq("id", clientId);
+
+    if (error) {
+      toast.error("Failed to delete client");
+      return;
+    }
+
+    toast.success("Client deleted successfully");
+    if (selectedClientId === clientId) {
+      onClientSelect("");
+    }
+    fetchClients();
+  };
+
+  const filteredClients = clients.filter((client) =>
+    client.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    client.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    client.phone?.includes(searchQuery)
+  );
 
   return (
     <Card>
@@ -152,22 +188,60 @@ export function ClientManager({ selectedClientId, onClientSelect }: ClientManage
         <CardDescription>Select a client to view conversation history</CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="space-y-2">
-          {clients.map((client) => (
-            <Button
-              key={client.id}
-              variant={selectedClientId === client.id ? "default" : "outline"}
-              className="w-full justify-start"
-              onClick={() => onClientSelect(client.id)}
-            >
-              {client.name}
-            </Button>
-          ))}
-          {clients.length === 0 && (
-            <p className="text-sm text-muted-foreground text-center py-4">
-              No clients yet. Add your first client to get started.
-            </p>
-          )}
+        <div className="space-y-4">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search clients..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          <div className="space-y-2">
+            {filteredClients.map((client) => (
+              <div key={client.id} className="flex gap-2">
+                <Button
+                  variant={selectedClientId === client.id ? "default" : "outline"}
+                  className="flex-1 justify-start"
+                  onClick={() => onClientSelect(client.id)}
+                >
+                  {client.name}
+                </Button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="outline" size="icon">
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Delete Client</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Are you sure you want to delete {client.name}? This will also delete all associated conversations and cannot be undone.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => handleDelete(client.id)}>
+                        Delete
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
+            ))}
+            {filteredClients.length === 0 && clients.length > 0 && (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                No clients found matching "{searchQuery}"
+              </p>
+            )}
+            {clients.length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                No clients yet. Add your first client to get started.
+              </p>
+            )}
+          </div>
         </div>
       </CardContent>
     </Card>
