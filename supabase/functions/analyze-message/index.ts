@@ -190,7 +190,13 @@ Return JSON:
     const data = await response.json();
     console.log('AI response:', data);
     
-    const aiResponse = JSON.parse(data.choices[0].message.content);
+    // Extract the content and strip markdown code blocks if present
+    let content = data.choices[0].message.content;
+    
+    // Remove markdown code block markers (```json and ```)
+    content = content.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
+    
+    const aiResponse = JSON.parse(content);
 
     return new Response(JSON.stringify(aiResponse), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
