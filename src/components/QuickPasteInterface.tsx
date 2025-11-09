@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ClientManager } from "./ClientManager";
 import { PersonaManager } from "./PersonaManager";
 import { ConversationHistory } from "./ConversationHistory";
+import { ReminderManager } from "./ReminderManager";
 
 interface ConversationMessage {
   role: 'client' | 'agent';
@@ -443,6 +444,7 @@ const QuickPasteInterface = () => {
         </Card>
       )}
 
+      {/* Main Content - Responsive Grid */}
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Left: Input */}
         <div className="space-y-4">
@@ -456,12 +458,12 @@ const QuickPasteInterface = () => {
                 <img 
                   src={selectedImage} 
                   alt="Screenshot to analyze" 
-                  className="max-h-48 w-full rounded object-contain"
+                  className="max-h-40 sm:max-h-48 w-full rounded object-contain"
                 />
                 <Button
                   variant="destructive"
                   size="sm"
-                  className="absolute right-3 top-3"
+                  className="absolute right-2 top-2 sm:right-3 sm:top-3"
                   onClick={() => setSelectedImage(null)}
                 >
                   <X className="h-4 w-4" />
@@ -475,10 +477,10 @@ const QuickPasteInterface = () => {
               value={clientMessage}
               onChange={(e) => setClientMessage(e.target.value)}
               onPaste={handlePaste}
-              className="mb-3 min-h-[200px] focus-visible:ring-primary"
+              className="mb-3 min-h-[150px] sm:min-h-[200px] focus-visible:ring-primary text-base"
             />
             
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -490,18 +492,18 @@ const QuickPasteInterface = () => {
                 onClick={() => fileInputRef.current?.click()}
                 variant="outline"
                 disabled={isAnalyzing}
-                className="flex-1"
+                className="w-full sm:flex-1"
               >
                 <Camera className="mr-2 h-4 w-4" />
-                Upload Screenshot
+                <span className="text-sm sm:text-base">Upload Screenshot</span>
               </Button>
               <Button
                 onClick={handleAnalyze}
                 disabled={isAnalyzing}
-                className="flex-1 bg-primary hover:bg-primary-hover text-primary-foreground"
+                className="w-full sm:flex-1 bg-primary hover:bg-primary-hover text-primary-foreground"
               >
                 {isAnalyzing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {isAnalyzing ? 'Analyzing...' : 'Analyze'}
+                <span className="text-sm sm:text-base">{isAnalyzing ? 'Analyzing...' : 'Analyze'}</span>
               </Button>
             </div>
           </Card>
