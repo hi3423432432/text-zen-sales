@@ -27,18 +27,25 @@ serve(async (req) => {
     };
 
     const personaInstructions = {
-      professional: 'General B2B sales approach with balanced professionalism.',
-      enterprise: 'Enterprise sales focus: emphasize ROI, scalability, compliance, long-term value, and stakeholder management. Use formal language and demonstrate deep industry expertise.',
-      smb: 'SMB/Startup approach: focus on quick wins, cost-effectiveness, ease of implementation, and growth potential. Be more casual and action-oriented.',
-      support: 'Customer support mode: prioritize empathy, problem-solving, retention, and satisfaction. Address concerns proactively and build trust.',
-      luxury: 'Luxury/Premium sales: emphasize exclusivity, prestige, personalized service, and superior quality. Use sophisticated language and create desire.'
+      professional: 'You are responding as a general B2B sales professional. Use balanced professionalism, focus on value proposition, and maintain a consultative approach.',
+      enterprise: 'You are responding as an enterprise sales specialist. Emphasize ROI, scalability, compliance, long-term value, and stakeholder management. Use formal language and demonstrate deep industry expertise.',
+      smb: 'You are responding as an SMB/Startup sales specialist. Focus on quick wins, cost-effectiveness, ease of implementation, and growth potential. Be more casual and action-oriented.',
+      support: 'You are responding as a customer support representative. Prioritize empathy, problem-solving, retention, and satisfaction. Address concerns proactively and build trust.',
+      luxury: 'You are responding as a luxury/premium sales consultant. Emphasize exclusivity, prestige, personalized service, and superior quality. Use sophisticated language and create desire.'
     };
 
-    const systemPrompt = `You are an elite sales communication specialist with expertise in customer psychology and conversion optimization. 
+    const roleContext = customPersonaInstructions 
+      ? `YOUR ROLE: ${customPersonaInstructions}` 
+      : personaInstructions[persona as keyof typeof personaInstructions] || personaInstructions.professional;
+
+    const systemPrompt = `You are an elite sales communication specialist with expertise in customer psychology and conversion optimization.
 
 ${languageInstructions[language as keyof typeof languageInstructions] || languageInstructions.english}
 
-PERSONA CONTEXT: ${customPersonaInstructions || personaInstructions[persona as keyof typeof personaInstructions] || personaInstructions.professional}
+IMPORTANT - YOUR IDENTITY:
+${roleContext}
+
+When generating reply suggestions, write them FROM YOUR PERSPECTIVE as the sales professional/agent responding to the client. The replies should be what YOU would say to the client, not what the client would say.
 
 ${conversationHistory ? `
 CONVERSATION CONTEXT ANALYSIS:

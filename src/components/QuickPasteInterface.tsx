@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
@@ -10,7 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ClientManager } from "./ClientManager";
-import { PersonaManager } from "./PersonaManager";
+import { MyRoleSelector } from "./MyRoleSelector";
 import { ConversationHistory } from "./ConversationHistory";
 import { ReminderManager } from "./ReminderManager";
 
@@ -59,27 +59,10 @@ const QuickPasteInterface = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
-  // Fetch custom persona instructions when persona changes
-  useEffect(() => {
-    if (persona.startsWith('custom:')) {
-      const personaId = persona.split(':')[1];
-      fetchCustomPersonaInstructions(personaId);
-    } else {
-      setCustomPersonaInstructions(null);
-    }
-  }, [persona]);
-
-  const fetchCustomPersonaInstructions = async (personaId: string) => {
-    const { data, error } = await supabase
-      .from("custom_personas")
-      .select("system_instructions")
-      .eq("id", personaId)
-      .single();
-
-    if (!error && data) {
-      setCustomPersonaInstructions(data.system_instructions);
-    }
-  };
+  // Callback for when instructions change from MyRoleSelector
+  const handleInstructionsChange = useCallback((instructions: string | null) => {
+    setCustomPersonaInstructions(instructions);
+  }, []);
 
   // Auto-focus on mount
   useEffect(() => {
@@ -299,15 +282,20 @@ const QuickPasteInterface = () => {
 
   return (
     <div className="container mx-auto max-w-6xl px-4 py-8">
-      {/* Client and Persona Managers */}
-      <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* My Role Selector - Prominent at top */}
+      <div className="mb-6">
+        <MyRoleSelector 
+          selectedPersona={persona}
+          onPersonaSelect={setPersona}
+          onInstructionsChange={handleInstructionsChange}
+        />
+      </div>
+
+      {/* Client Manager */}
+      <div className="mb-6">
         <ClientManager 
           selectedClientId={selectedClientId}
           onClientSelect={setSelectedClientId}
-        />
-        <PersonaManager 
-          selectedPersona={persona}
-          onPersonaSelect={setPersona}
         />
       </div>
 
