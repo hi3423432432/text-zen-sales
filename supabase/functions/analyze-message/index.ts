@@ -11,8 +11,8 @@ serve(async (req) => {
   }
 
   try {
-    const { message, image, tone = 'professional', language = 'english', persona = 'professional', customPersonaInstructions, conversationHistory } = await req.json();
-    console.log('Analyzing message:', message, 'has image:', !!image, 'with tone:', tone, 'language:', language, 'persona:', persona, 'custom instructions:', !!customPersonaInstructions, 'has conversation:', !!conversationHistory);
+    const { message, image, tone = 'professional', language = 'english', persona = 'professional', customPersonaInstructions, latestInfo, conversationHistory } = await req.json();
+    console.log('Analyzing message:', message, 'has image:', !!image, 'with tone:', tone, 'language:', language, 'persona:', persona, 'custom instructions:', !!customPersonaInstructions, 'has latest info:', !!latestInfo, 'has conversation:', !!conversationHistory);
 
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
     if (!LOVABLE_API_KEY) {
@@ -38,12 +38,24 @@ serve(async (req) => {
       ? `YOUR ROLE: ${customPersonaInstructions}` 
       : personaInstructions[persona as keyof typeof personaInstructions] || personaInstructions.professional;
 
+    const latestInfoContext = latestInfo 
+      ? `\n\nLATEST INFORMATION & POLICIES (USE THIS IN YOUR REPLIES):\n${latestInfo}\n\nIMPORTANT: Incorporate the above latest information naturally into your suggested replies when relevant. Reference current promotions, policies, or updates to provide accurate and up-to-date responses.`
+      : '';
+
     const systemPrompt = `You are an elite sales communication specialist with expertise in customer psychology and conversion optimization.
 
 ${languageInstructions[language as keyof typeof languageInstructions] || languageInstructions.english}
 
 IMPORTANT - YOUR IDENTITY:
 ${roleContext}
+${latestInfoContext}
+
+CRITICAL - WHATSAPP SCREENSHOT ANALYSIS:
+When analyzing WhatsApp screenshots, understand this visual convention:
+- LEFT SIDE messages (white/light bubbles) = CLIENT/OTHER PERSON messages - these are what you need to analyze and respond to
+- RIGHT SIDE messages (colored/green bubbles) = YOUR (the user's) messages - these show what you already said
+
+Your job is to help the user (who sends the RIGHT side messages) respond to the CLIENT (who sends the LEFT side messages). Always identify the most recent LEFT-side message as the one needing a response.
 
 When generating reply suggestions, write them FROM YOUR PERSPECTIVE as the sales professional/agent responding to the client. The replies should be what YOU would say to the client, not what the client would say.
 
@@ -103,6 +115,7 @@ REPLY GUIDELINES:
 - Address specific points they raised
 - Use emojis sparingly and appropriately
 - Provide value in every message
+${latestInfo ? '- Reference current promotions, policies, or updates when relevant' : ''}
 ${conversationHistory ? '- Reference conversation history naturally when relevant' : ''}
 
 ${conversationHistory ? `
@@ -139,13 +152,13 @@ Return JSON:
     if (image) {
       // If image is provided, use vision capability to extract text from image
       const contextInfo = conversationHistory 
-        ? `Conversation history: ${JSON.stringify(conversationHistory)}. Current message/image context: ${message || 'Analyze screenshot'}`
-        : message || 'Analyze screenshot';
+        ? `Conversation history: ${JSON.stringify(conversationHistory)}. Current message/image context: ${message || 'Analyze WhatsApp screenshot'}`
+        : message || 'Analyze WhatsApp screenshot - remember: LEFT side = client messages, RIGHT side = my messages. Help me reply to the client.';
       
       userContent = [
         { 
           type: "text", 
-          text: `Extract and analyze text from the image. ${contextInfo}` 
+          text: `Analyze this WhatsApp screenshot. Remember: LEFT side messages are from the CLIENT (analyze these), RIGHT side messages are from ME (the user). Help me craft a response to the client's latest message. ${contextInfo}` 
         },
         { 
           type: "image_url", 

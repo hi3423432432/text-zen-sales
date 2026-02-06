@@ -55,13 +55,15 @@ const QuickPasteInterface = () => {
   const [showConversationContext, setShowConversationContext] = useState(false);
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [customPersonaInstructions, setCustomPersonaInstructions] = useState<string | null>(null);
+  const [latestInfo, setLatestInfo] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
   // Callback for when instructions change from MyRoleSelector
-  const handleInstructionsChange = useCallback((instructions: string | null) => {
+  const handleInstructionsChange = useCallback((instructions: string | null, latestInfoUpdate?: string | null) => {
     setCustomPersonaInstructions(instructions);
+    setLatestInfo(latestInfoUpdate ?? null);
   }, []);
 
   // Auto-focus on mount
@@ -131,6 +133,7 @@ const QuickPasteInterface = () => {
           language,
           persona: effectivePersona,
           customPersonaInstructions: customPersonaInstructions,
+          latestInfo: latestInfo,
           conversationHistory: conversation.length > 0 ? conversation : undefined
         }
       });
