@@ -278,13 +278,13 @@ export function LiveScreenAssistant({ onClose, customInstructions, latestInfo }:
         <Button
           onClick={() => setIsMinimized(false)}
           className={cn(
-            "h-14 w-14 rounded-full shadow-lg text-primary-foreground",
+            "h-12 w-12 rounded-full shadow-lg text-primary-foreground",
             isStreaming 
               ? "bg-success hover:bg-success/90 animate-pulse" 
               : "bg-primary hover:bg-primary/90"
           )}
         >
-          {isStreaming ? <Eye className="h-6 w-6" /> : <Bot className="h-6 w-6" />}
+          {isStreaming ? <Eye className="h-5 w-5" /> : <Bot className="h-5 w-5" />}
         </Button>
       </div>
     );
@@ -295,13 +295,23 @@ export function LiveScreenAssistant({ onClose, customInstructions, latestInfo }:
       ref={elementRef}
       onMouseDown={handleMouseDown}
       style={{ 
-        left: position.x, 
-        top: position.y,
+        left: isMobile ? 0 : position.x, 
+        top: isMobile ? 'auto' : position.y,
+        bottom: isMobile ? 0 : 'auto',
+        right: isMobile ? 0 : 'auto',
         cursor: isDragging ? 'grabbing' : 'auto'
       }}
-      className="fixed z-50 select-none"
+      className={cn(
+        "fixed z-50 select-none",
+        isMobile && "w-full"
+      )}
     >
-      <Card className="w-[360px] shadow-2xl border-primary/20 overflow-hidden flex flex-col max-h-[85vh] relative">
+      <Card className={cn(
+        "shadow-2xl border-primary/20 overflow-hidden flex flex-col relative",
+        isMobile 
+          ? "w-full rounded-b-none max-h-[70vh]" 
+          : "w-[360px] max-h-[85vh]"
+      )}>
         {/* Header */}
         <div 
           data-drag-handle
