@@ -19,12 +19,15 @@ import {
   X,
   GripHorizontal,
   Eye,
-  Loader2
+  Loader2,
+  Camera,
+  Upload
 } from "lucide-react";
 import { useDraggable } from "./useDraggable";
 import { getScreenCapture } from "./ScreenCapture";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 
 interface LiveSuggestion {
@@ -59,12 +62,15 @@ export function LiveScreenAssistant({ onClose, customInstructions, latestInfo }:
   const [manualInstruction, setManualInstruction] = useState("");
   const [lastScreenshot, setLastScreenshot] = useState<string | null>(null);
   const [analysisCount, setAnalysisCount] = useState(0);
+  const [countdown, setCountdown] = useState<number | null>(null);
   const analysisQueueRef = useRef<string | null>(null);
   const isProcessingRef = useRef(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+  const isMobile = useIsMobile();
   
   const { position, isDragging, handleMouseDown, elementRef } = useDraggable({
-    x: window.innerWidth - 400,
+    x: typeof window !== 'undefined' ? Math.max(10, window.innerWidth - 400) : 10,
     y: 80
   });
 
@@ -133,15 +139,30 @@ export function LiveScreenAssistant({ onClose, customInstructions, latestInfo }:
     }
   }, [customInstructions, latestInfo, toast]);
 
-  // Start/Stop screen sharing
-  const toggleStreaming = useCallback(async () => {
-    if (isStreaming) {
-      screenCapture.stop();
-      setIsStreaming(false);
-      setLastScreenshot(null);
+  // Start countdown then begin streaming
+  const startWithCountdown = useCallback(async () => {
+    setCountdown(3);
+    
+    await new Promise<void>((resolve) => {
+      let count = 3;
+      const timer = setInterval(() => {
+        count--;
+        if (count > 0) {
+          setCountdown(count);
+        } else {
+          clearInterval(timer);
+          setCountdown(null);
+          resolve();
+        }
+      }, 1000);
+    });
+
+    if (isMobile) {
+      // On mobile, switch to manual screenshot upload mode
+      setIsStreaming(true);
       toast({
-        title: "🛑 屏幕监控已停止",
-        description: "AI 助手已停止观看屏幕"
+        title: "📸 截图模式已启动",
+        description: "请截图WhatsApp对话，然后点击上传按钮"
       });
     } else {
       const success = await screenCapture.start(
@@ -149,7 +170,7 @@ export function LiveScreenAssistant({ onClose, customInstructions, latestInfo }:
           setLastScreenshot(imageData);
           processScreenshot(imageData);
         },
-        4000 // Analyze every 4 seconds to avoid rate limiting
+        4000
       );
 
       if (success) {
@@ -166,7 +187,37 @@ export function LiveScreenAssistant({ onClose, customInstructions, latestInfo }:
         });
       }
     }
-  }, [isStreaming, screenCapture, processScreenshot, toast]);
+  }, [isMobile, screenCapture, processScreenshot, toast]);
+
+  // Stop streaming
+  const stopStreaming = useCallback(() => {
+    if (!isMobile) {
+      screenCapture.stop();
+    }
+    setIsStreaming(false);
+    setLastScreenshot(null);
+    toast({
+      title: "🛑 监控已停止",
+      description: "AI 助手已停止"
+    });
+  }, [isMobile, screenCapture, toast]);
+
+  // Handle mobile screenshot upload
+  const handleScreenshotUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const imageData = event.target?.result as string;
+      setLastScreenshot(imageData);
+      processScreenshot(imageData);
+    };
+    reader.readAsDataURL(file);
+    
+    // Reset input so same file can be uploaded again
+    e.target.value = '';
+  }, [processScreenshot]);
 
   // Handle manual instruction
   const handleGenerateReply = useCallback(async () => {
@@ -250,7 +301,7 @@ export function LiveScreenAssistant({ onClose, customInstructions, latestInfo }:
       }}
       className="fixed z-50 select-none"
     >
-      <Card className="w-[360px] shadow-2xl border-primary/20 overflow-hidden flex flex-col max-h-[85vh]">
+      <Card className="w-[360px] shadow-2xl border-primary/20 overflow-hidden flex flex-col max-h-[85vh] relative">
         {/* Header */}
         <div 
           data-drag-handle
@@ -293,34 +344,75 @@ export function LiveScreenAssistant({ onClose, customInstructions, latestInfo }:
           </div>
         </div>
 
+        {/* Countdown Overlay */}
+        {countdown !== null && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+            <div className="text-6xl font-bold text-primary animate-pulse">
+              {countdown}
+            </div>
+          </div>
+        )}
+
         {/* Screen Control */}
         <div className="p-3 border-b border-border bg-muted/30">
-          <Button
-            onClick={toggleStreaming}
-            className={cn(
-              "w-full",
-              isStreaming 
-                ? "bg-destructive hover:bg-destructive/90" 
-                : "bg-success hover:bg-success/90"
-            )}
-          >
-            {isStreaming ? (
-              <>
-                <MonitorOff className="h-4 w-4 mr-2" />
-                停止屏幕监控
-              </>
-            ) : (
-              <>
-                <MonitorPlay className="h-4 w-4 mr-2" />
-                开始屏幕监控
-              </>
-            )}
-          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={handleScreenshotUpload}
+          />
           
-          {!isStreaming && (
-            <p className="text-xs text-muted-foreground text-center mt-2">
-              点击开始，AI 将实时观看您的屏幕并推荐回复
-            </p>
+          {isStreaming ? (
+            <div className="space-y-2">
+              <Button
+                onClick={stopStreaming}
+                className="w-full bg-destructive hover:bg-destructive/90"
+              >
+                <MonitorOff className="h-4 w-4 mr-2" />
+                停止监控
+              </Button>
+              
+              {isMobile && (
+                <Button
+                  onClick={() => fileInputRef.current?.click()}
+                  variant="outline"
+                  className="w-full"
+                  disabled={isAnalyzing}
+                >
+                  {isAnalyzing ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      分析中...
+                    </>
+                  ) : (
+                    <>
+                      <Camera className="h-4 w-4 mr-2" />
+                      上传WhatsApp截图
+                    </>
+                  )}
+                </Button>
+              )}
+            </div>
+          ) : (
+            <>
+              <Button
+                onClick={startWithCountdown}
+                disabled={countdown !== null}
+                className="w-full bg-success hover:bg-success/90"
+              >
+                <MonitorPlay className="h-4 w-4 mr-2" />
+                {isMobile ? "开始截图模式" : "开始屏幕监控"}
+              </Button>
+              
+              <p className="text-xs text-muted-foreground text-center mt-2">
+                {isMobile 
+                  ? "启动后上传WhatsApp截图，AI 将分析并推荐回复"
+                  : "点击开始，AI 将实时观看您的屏幕并推荐回复"
+                }
+              </p>
+            </>
           )}
         </div>
 
