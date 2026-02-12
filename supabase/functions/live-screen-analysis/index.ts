@@ -2,8 +2,37 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
 };
+
+// Rate limiting per user
+const requestTimestamps = new Map<string, number[]>();
+const RATE_LIMIT_WINDOW = 60_000; // 1 minute
+const MAX_REQUESTS = 15; // max 15 requests per minute
+
+function checkRateLimit(userId: string): boolean {
+  const now = Date.now();
+  const timestamps = requestTimestamps.get(userId) || [];
+  const recent = timestamps.filter(t => now - t < RATE_LIMIT_WINDOW);
+  if (recent.length >= MAX_REQUESTS) return false;
+  recent.push(now);
+  requestTimestamps.set(userId, recent);
+  return true;
+}
+
+// Input sanitization
+function sanitizeString(input: unknown, maxLength = 2000): string {
+  if (typeof input !== 'string') return '';
+  return input.slice(0, maxLength).replace(/[<>]/g, '');
+}
+
+function validateBase64Image(input: unknown): string | null {
+  if (typeof input !== 'string') return null;
+  if (!input.startsWith('data:image/')) return null;
+  // Limit to ~10MB base64
+  if (input.length > 10 * 1024 * 1024 * 1.37) return null;
+  return input;
+}
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -11,12 +40,37 @@ serve(async (req) => {
   }
 
   try {
-    const { screenshot, customInstructions, latestInfo, manualInstruction } = await req.json();
-    console.log('Live screen analysis - has screenshot:', !!screenshot, 'has manual instruction:', !!manualInstruction);
+    const body = await req.json();
+    
+    // Validate and sanitize inputs
+    const screenshot = validateBase64Image(body.screenshot);
+    if (!screenshot) {
+      return new Response(JSON.stringify({ error: 'Invalid or missing screenshot' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    
+    const customInstructions = sanitizeString(body.customInstructions, 1000);
+    const latestInfo = sanitizeString(body.latestInfo, 2000);
+    const manualInstruction = sanitizeString(body.manualInstruction, 500);
+    
+    // Extract user ID from auth header for rate limiting
+    const authHeader = req.headers.get('authorization') || '';
+    const userId = authHeader.slice(-16) || 'anonymous';
+    
+    if (!checkRateLimit(userId)) {
+      return new Response(JSON.stringify({ error: 'Too many requests. Please slow down.' }), {
+        status: 429,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    console.log('Live screen analysis - has manual instruction:', !!manualInstruction);
 
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
     if (!LOVABLE_API_KEY) {
-      throw new Error('LOVABLE_API_KEY is not configured');
+      throw new Error('Service configuration error');
     }
 
     const roleContext = customInstructions 
@@ -41,12 +95,12 @@ CRITICAL - MESSAGE BUBBLE POSITION RULES (HIGHEST PRIORITY):
 You are analyzing a screenshot of a messaging app (WhatsApp, WeChat, LINE, Telegram, etc.).
 Follow these ABSOLUTE rules to identify who said what:
 
-1. **LEFT-ALIGNED messages** (bubbles touching or near the LEFT edge) = **CLIENT (客户)** messages
+1. **LEFT-ALIGNED messages** (bubbles touching or near the LEFT edge) = **CLIENT** messages
    - These are typically white, light gray, or lighter-colored bubbles
    - They may include the client's profile picture/avatar on the left
    - ANY message on the left side is ALWAYS from the client, no exceptions
 
-2. **RIGHT-ALIGNED messages** (bubbles touching or near the RIGHT edge) = **USER (我方/销售)** messages  
+2. **RIGHT-ALIGNED messages** (bubbles touching or near the RIGHT edge) = **USER** messages  
    - These are typically green, blue, or darker/colored bubbles
    - They represent what the user has already sent
    - ANY message on the right side is ALWAYS from the user, no exceptions
@@ -54,70 +108,35 @@ Follow these ABSOLUTE rules to identify who said what:
 3. **Reading order**: Read messages TOP to BOTTOM to understand the chronological flow
 4. **Multiple messages**: A person may send multiple consecutive messages - group them together
 5. **Media messages**: Images, voice messages, stickers on the left = client sent them; on the right = user sent them
-6. **System messages**: Center-aligned messages (dates, "missed call", etc.) are system notifications, not from either party
-
-IMPORTANT: Do NOT confuse the sides. The person asking for help is the USER (right side). You are helping them reply to the CLIENT (left side).
+6. **System messages**: Center-aligned messages (dates, "missed call", etc.) are system notifications
 
 CONVERSATION ANALYSIS:
 
-1. EXTRACT ALL MESSAGES:
-   - List every visible message with its sender (客户/我方) based on position
-   - Pay attention to the LAST few messages - they are most important
-   - Note any images, voice messages, or links shared
-
-2. DETECT CONVERSATION STATE:
-   - Is there a new/unanswered client message at the bottom?
-   - What stage: 开场(opening) / 探需(discovery) / 解疑(objection handling) / 成交(closing) / 售后(after-sales)
-   - Client emotional state: 积极(positive) / 中性(neutral) / 犹豫(hesitant) / 不满(dissatisfied)
-
-3. DEEP CLIENT INTENT ANALYSIS:
-   - What does the client explicitly ask for?
-   - What are their implicit/hidden needs?
-   - Any objections, concerns, or resistance?
-   - Buying signals (asking about price, delivery, specs)?
-   - Urgency indicators or timeline mentions?
-   - Compare what client says vs their likely true intent
-
-4. GENERATE 1-3 REPLY SUGGESTIONS:
-   Each suggestion must:
-   - Directly address the client's last message(s)
-   - Be natural and conversational (2-4 sentences, WhatsApp style)
-   - Include a strategic next step or call-to-action
-   - Have a clear strategy explanation
-   - Match the conversation's language and tone
-
-5. IF NO NEW CLIENT MESSAGE NEEDS RESPONSE:
-   - Set needsResponse to false
-   - Analyze the overall conversation health
-   - Suggest proactive follow-up timing and content
+1. EXTRACT ALL MESSAGES by position (left=client, right=user)
+2. DETECT: conversation state, stage, and client emotion
+3. DEEP INTENT ANALYSIS: explicit asks, hidden needs, objections, buying signals
+4. GENERATE 1-3 REPLY SUGGESTIONS: natural, conversational, with clear strategy
 
 Return JSON:
 {
   "needsResponse": true/false,
-  "clientStatus": "客户当前状态的详细描述",
+  "clientStatus": "client status description",
   "emotion": "积极|中性|犹豫|不满",
   "stage": "开场|探需|解疑|成交|售后",
-  "lastClientMessage": "客户最后说的完整内容",
-  "conversationFlow": [
-    {"side": "client|user", "content": "消息内容摘要"}
-  ],
-  "objections": ["具体异议描述"],
-  "buyingSignals": ["购买信号描述"],
-  "suggestions": [
-    {
-      "content": "建议回复内容",
-      "strategy": "为什么这样回复 + 预期效果"
-    }
-  ],
-  "insights": "对话深度洞察、风险提醒和下一步建议"
+  "lastClientMessage": "last client message content",
+  "conversationFlow": [{"side": "client|user", "content": "message summary"}],
+  "objections": ["objection descriptions"],
+  "buyingSignals": ["buying signal descriptions"],
+  "suggestions": [{"content": "suggested reply", "strategy": "why this reply + expected effect"}],
+  "insights": "deep insights and next steps"
 }`;
 
     const userContent = [
       { 
         type: "text", 
         text: manualInstruction 
-          ? `分析这个WhatsApp屏幕截图，根据用户指令生成回复：${manualInstruction}`
-          : "分析这个WhatsApp屏幕截图，识别客户消息并推荐最佳回复。" 
+          ? `Analyze this messaging screenshot and generate a reply based on: ${manualInstruction}`
+          : "Analyze this messaging screenshot. Identify client messages (LEFT) and suggest optimal replies." 
       },
       { 
         type: "image_url", 
@@ -154,9 +173,8 @@ Return JSON:
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
-      const errorText = await response.text();
-      console.error('AI gateway error:', response.status, errorText);
-      throw new Error('AI gateway error');
+      console.error('AI gateway error:', response.status);
+      throw new Error('Analysis service temporarily unavailable');
     }
 
     const data = await response.json();
@@ -164,14 +182,14 @@ Return JSON:
     content = content.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
     
     const aiResponse = JSON.parse(content);
-    console.log('Live analysis result:', aiResponse);
 
     return new Response(JSON.stringify(aiResponse), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (error) {
-    console.error('Error in live-screen-analysis function:', error);
-    return new Response(JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }), {
+    console.error('Error in live-screen-analysis:', error);
+    // Sanitize error message - never expose internals
+    return new Response(JSON.stringify({ error: 'Analysis failed. Please try again.' }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

@@ -1,10 +1,19 @@
-import { useState } from "react";
+import { useState, lazy, Suspense } from "react";
 import Hero from "@/components/Hero";
-import QuickPasteInterface from "@/components/QuickPasteInterface";
 import Header from "@/components/Header";
-import { FloatingSalesAssistant, LiveScreenAssistant } from "@/components/floating-assistant";
 import { Button } from "@/components/ui/button";
-import { Bot, Eye } from "lucide-react";
+import { Bot, Eye, Loader2 } from "lucide-react";
+
+// Lazy load heavy components
+const QuickPasteInterface = lazy(() => import("@/components/QuickPasteInterface"));
+const FloatingSalesAssistant = lazy(() => import("@/components/floating-assistant/FloatingSalesAssistant").then(m => ({ default: m.FloatingSalesAssistant })));
+const LiveScreenAssistant = lazy(() => import("@/components/floating-assistant/LiveScreenAssistant").then(m => ({ default: m.LiveScreenAssistant })));
+
+const LoadingFallback = () => (
+  <div className="flex items-center justify-center py-20">
+    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+  </div>
+);
 
 const Index = () => {
   const [showApp, setShowApp] = useState(false);
@@ -15,7 +24,9 @@ const Index = () => {
     return (
       <>
         <Header />
-        <QuickPasteInterface />
+        <Suspense fallback={<LoadingFallback />}>
+          <QuickPasteInterface />
+        </Suspense>
         
         {/* Floating Assistant Toggle Buttons */}
         <div className="fixed bottom-6 right-6 z-40 flex flex-col gap-2">
@@ -40,11 +51,15 @@ const Index = () => {
         </div>
         
         {showFloatingAssistant && (
-          <FloatingSalesAssistant onClose={() => setShowFloatingAssistant(false)} />
+          <Suspense fallback={null}>
+            <FloatingSalesAssistant onClose={() => setShowFloatingAssistant(false)} />
+          </Suspense>
         )}
         
         {showLiveAssistant && (
-          <LiveScreenAssistant onClose={() => setShowLiveAssistant(false)} />
+          <Suspense fallback={null}>
+            <LiveScreenAssistant onClose={() => setShowLiveAssistant(false)} />
+          </Suspense>
         )}
       </>
     );
