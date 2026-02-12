@@ -76,12 +76,25 @@ export function LiveScreenAssistant({ onClose, customInstructions, latestInfo }:
 
   const screenCapture = getScreenCapture();
 
+  // Throttle: skip analysis if last one was too recent (< 5s ago for auto, no throttle for manual)
+  const lastAnalysisTime = useRef<number>(0);
+  const MIN_ANALYSIS_INTERVAL = 5000;
+
   // Process screenshot with AI
   const processScreenshot = useCallback(async (screenshot: string, instruction?: string) => {
     if (isProcessingRef.current && !instruction) {
-      // Queue the latest screenshot if we're still processing
       analysisQueueRef.current = screenshot;
       return;
+    }
+
+    // Throttle automatic analyses
+    if (!instruction) {
+      const now = Date.now();
+      if (now - lastAnalysisTime.current < MIN_ANALYSIS_INTERVAL) {
+        analysisQueueRef.current = screenshot;
+        return;
+      }
+      lastAnalysisTime.current = now;
     }
 
     isProcessingRef.current = true;
@@ -101,12 +114,22 @@ export function LiveScreenAssistant({ onClose, customInstructions, latestInfo }:
         }
       });
 
-      if (error) throw error;
+      if (error) {
+        // Handle specific HTTP errors from edge function
+        if (error.message?.includes('429') || error.message?.includes('Too many')) {
+          toast({ title: "分析频率过高", description: "请稍等片刻再试", variant: "destructive" });
+          return;
+        }
+        if (error.message?.includes('402')) {
+          toast({ title: "额度不足", description: "请充值后继续使用", variant: "destructive" });
+          return;
+        }
+        throw error;
+      }
 
       setAnalysis(data);
       setAnalysisCount(prev => prev + 1);
 
-      // If there's a new message that needs response, notify
       if (data.needsResponse && data.lastClientMessage) {
         toast({
           title: "📩 新客户消息",
@@ -115,26 +138,15 @@ export function LiveScreenAssistant({ onClose, customInstructions, latestInfo }:
       }
     } catch (error: any) {
       console.error('Analysis error:', error);
-      if (error.message?.includes('429') || error.message?.includes('Rate limit')) {
-        toast({
-          title: "分析频率过高",
-          description: "请稍等片刻再试",
-          variant: "destructive"
-        });
-      }
     } finally {
       isProcessingRef.current = false;
       setIsAnalyzing(false);
       setIsGenerating(false);
 
-      // Process queued screenshot if any
       if (analysisQueueRef.current && !instruction) {
         const queuedScreenshot = analysisQueueRef.current;
         analysisQueueRef.current = null;
-        // Delay to prevent rate limiting
-        setTimeout(() => {
-          processScreenshot(queuedScreenshot);
-        }, 1000);
+        setTimeout(() => processScreenshot(queuedScreenshot), 2000);
       }
     }
   }, [customInstructions, latestInfo, toast]);

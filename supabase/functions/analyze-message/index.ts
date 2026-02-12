@@ -2,7 +2,50 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
+};
+
+// Rate limiting per user
+const requestTimestamps = new Map<string, number[]>();
+const RATE_LIMIT_WINDOW = 60_000;
+const MAX_REQUESTS = 20;
+
+function checkRateLimit(userId: string): boolean {
+  const now = Date.now();
+  const timestamps = requestTimestamps.get(userId) || [];
+  const recent = timestamps.filter(t => now - t < RATE_LIMIT_WINDOW);
+  if (recent.length >= MAX_REQUESTS) return false;
+  recent.push(now);
+  requestTimestamps.set(userId, recent);
+  return true;
+}
+
+// Input sanitization
+function sanitizeString(input: unknown, maxLength = 2000): string {
+  if (typeof input !== 'string') return '';
+  return input.slice(0, maxLength).replace(/[<>]/g, '');
+}
+
+function validateBase64Image(input: unknown): string | null {
+  if (typeof input !== 'string') return null;
+  if (!input.startsWith('data:image/')) return null;
+  if (input.length > 10 * 1024 * 1024 * 1.37) return null;
+  return input;
+}
+
+const languageInstructions: Record<string, string> = {
+  english: 'Respond in English.',
+  cantonese: 'Respond in Traditional Chinese using Cantonese expressions (粵語).',
+  chinese_traditional: 'Respond in Traditional Chinese (繁體中文).',
+  chinese_simplified: 'Respond in Simplified Chinese (简体中文).'
+};
+
+const personaInstructions: Record<string, string> = {
+  professional: 'You are a general B2B sales professional. Use balanced professionalism and consultative approach.',
+  enterprise: 'You are an enterprise sales specialist. Emphasize ROI, scalability, and stakeholder management.',
+  smb: 'You are an SMB/Startup sales specialist. Focus on quick wins and cost-effectiveness.',
+  support: 'You are a customer support representative. Prioritize empathy and problem-solving.',
+  luxury: 'You are a luxury sales consultant. Emphasize exclusivity and personalized service.'
 };
 
 serve(async (req) => {
@@ -11,164 +54,108 @@ serve(async (req) => {
   }
 
   try {
-    const { message, image, tone = 'professional', language = 'english', persona = 'professional', customPersonaInstructions, latestInfo, conversationHistory } = await req.json();
-    console.log('Analyzing message:', message, 'has image:', !!image, 'with tone:', tone, 'language:', language, 'persona:', persona, 'custom instructions:', !!customPersonaInstructions, 'has latest info:', !!latestInfo, 'has conversation:', !!conversationHistory);
+    const body = await req.json();
+    
+    // Validate inputs
+    const message = sanitizeString(body.message, 5000);
+    const image = body.image ? validateBase64Image(body.image) : null;
+    const tone = sanitizeString(body.tone || 'professional', 50);
+    const language = sanitizeString(body.language || 'english', 30);
+    const persona = sanitizeString(body.persona || 'professional', 50);
+    const customPersonaInstructions = body.customPersonaInstructions ? sanitizeString(body.customPersonaInstructions, 1000) : null;
+    const latestInfo = body.latestInfo ? sanitizeString(body.latestInfo, 2000) : null;
+    const conversationHistory = Array.isArray(body.conversationHistory) ? body.conversationHistory.slice(0, 50) : null;
+
+    if (!message && !image) {
+      return new Response(JSON.stringify({ error: 'Message or image is required' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Rate limiting
+    const authHeader = req.headers.get('authorization') || '';
+    const userId = authHeader.slice(-16) || 'anonymous';
+    if (!checkRateLimit(userId)) {
+      return new Response(JSON.stringify({ error: 'Too many requests. Please slow down.' }), {
+        status: 429,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
     if (!LOVABLE_API_KEY) {
-      throw new Error('LOVABLE_API_KEY is not configured');
+      throw new Error('Service configuration error');
     }
-
-    const languageInstructions = {
-      english: 'Respond in English.',
-      cantonese: 'Respond in Traditional Chinese using Cantonese expressions and colloquialisms (粵語).',
-      chinese_traditional: 'Respond in Traditional Chinese (繁體中文).',
-      chinese_simplified: 'Respond in Simplified Chinese (简体中文).'
-    };
-
-    const personaInstructions = {
-      professional: 'You are responding as a general B2B sales professional. Use balanced professionalism, focus on value proposition, and maintain a consultative approach.',
-      enterprise: 'You are responding as an enterprise sales specialist. Emphasize ROI, scalability, compliance, long-term value, and stakeholder management. Use formal language and demonstrate deep industry expertise.',
-      smb: 'You are responding as an SMB/Startup sales specialist. Focus on quick wins, cost-effectiveness, ease of implementation, and growth potential. Be more casual and action-oriented.',
-      support: 'You are responding as a customer support representative. Prioritize empathy, problem-solving, retention, and satisfaction. Address concerns proactively and build trust.',
-      luxury: 'You are responding as a luxury/premium sales consultant. Emphasize exclusivity, prestige, personalized service, and superior quality. Use sophisticated language and create desire.'
-    };
 
     const roleContext = customPersonaInstructions 
       ? `YOUR ROLE: ${customPersonaInstructions}` 
-      : personaInstructions[persona as keyof typeof personaInstructions] || personaInstructions.professional;
+      : personaInstructions[persona] || personaInstructions.professional;
 
     const latestInfoContext = latestInfo 
-      ? `\n\nLATEST INFORMATION & POLICIES (USE THIS IN YOUR REPLIES):\n${latestInfo}\n\nIMPORTANT: Incorporate the above latest information naturally into your suggested replies when relevant. Reference current promotions, policies, or updates to provide accurate and up-to-date responses.`
+      ? `\n\nLATEST INFORMATION & POLICIES:\n${latestInfo}\n\nIncorporate this information naturally into replies when relevant.`
       : '';
 
-    const systemPrompt = `You are an elite sales communication specialist with expertise in customer psychology and conversion optimization.
+    const hasConversation = !!conversationHistory;
 
-${languageInstructions[language as keyof typeof languageInstructions] || languageInstructions.english}
+    const systemPrompt = `You are an elite sales communication specialist.
 
-IMPORTANT - YOUR IDENTITY:
+${languageInstructions[language] || languageInstructions.english}
+
 ${roleContext}
 ${latestInfoContext}
 
-CRITICAL - WHATSAPP SCREENSHOT ANALYSIS:
-When analyzing WhatsApp screenshots, understand this visual convention:
-- LEFT SIDE messages (white/light bubbles) = CLIENT/OTHER PERSON messages - these are what you need to analyze and respond to
-- RIGHT SIDE messages (colored/green bubbles) = YOUR (the user's) messages - these show what you already said
+WHATSAPP SCREENSHOT RULES:
+- LEFT SIDE messages = CLIENT messages (analyze these)
+- RIGHT SIDE messages = YOUR messages (already sent)
+Write replies FROM YOUR perspective responding to the client.
 
-Your job is to help the user (who sends the RIGHT side messages) respond to the CLIENT (who sends the LEFT side messages). Always identify the most recent LEFT-side message as the one needing a response.
-
-When generating reply suggestions, write them FROM YOUR PERSPECTIVE as the sales professional/agent responding to the client. The replies should be what YOU would say to the client, not what the client would say.
-
-${conversationHistory ? `
-CONVERSATION CONTEXT ANALYSIS:
-You have access to the full conversation thread. Analyze:
-1. Relationship progression and rapport level
-2. Previously discussed topics and commitments
-3. Client's evolving needs and objections
-4. Response patterns and engagement level
-5. Best timing and approach for follow-up
-
-Use this context to:
-- Reference previous discussion points naturally
-- Track promise/commitment fulfillment
-- Identify patterns in client behavior
-- Suggest strategic follow-up timing
-- Personalize based on conversation history
-` : ''}
+${hasConversation ? `CONVERSATION CONTEXT: Analyze relationship progression, track commitments, identify patterns.` : ''}
 
 ANALYSIS REQUIREMENTS:
-1. Sentiment Detection: Classify as positive, neutral, negative, urgent, or opportunity
-   - Detect buying signals, objections, budget concerns, timeline pressure
-   - Identify pain points and motivations
-   
-2. Key Points Extraction: 
-   - What the client wants/needs
-   - Any objections or concerns raised
-   - Timeline or urgency indicators
-   - Budget signals or price sensitivity
-   - Decision-making stage
-
-3. Generate 3 strategic replies optimized for conversion:
-   
-   PROFESSIONAL TONE:
-   - Consultative and authoritative
-   - Address concerns with data/social proof
-   - Clear next steps and CTAs
-   - Position as trusted advisor
-   
-   FRIENDLY TONE:
-   - Warm, empathetic, relationship-focused
-   - Use casual language while maintaining credibility
-   - Build rapport and trust
-   - Show understanding of their situation
-   
-   CONFIDENT TONE:
-   - Direct and solution-oriented
-   - Demonstrate expertise and value proposition
-   - Handle objections proactively
-   - Create urgency with benefits/scarcity
+1. Sentiment: positive, neutral, negative, urgent, or opportunity
+2. Key Points: needs, objections, timeline, budget signals
+3. Generate 3 replies:
+   - Professional: consultative, data-driven
+   - Friendly: warm, relationship-focused  
+   - Confident: direct, solution-oriented
 
 REPLY GUIDELINES:
-- Keep responses concise (2-4 sentences max for WhatsApp)
+- Keep responses concise (2-4 sentences for WhatsApp)
 - Include a clear call-to-action
-- Mirror client's language style
-- Address specific points they raised
-- Use emojis sparingly and appropriately
-- Provide value in every message
-${latestInfo ? '- Reference current promotions, policies, or updates when relevant' : ''}
-${conversationHistory ? '- Reference conversation history naturally when relevant' : ''}
+- Address specific points raised
+${latestInfo ? '- Reference current promotions when relevant' : ''}
+${hasConversation ? '- Reference conversation history naturally' : ''}
 
-${conversationHistory ? `
-FOLLOW-UP STRATEGY:
-Generate 3-5 actionable follow-up suggestions based on:
-- Client's responsiveness pattern
-- Current stage in sales cycle
-- Objections or hesitations shown
-- Engagement level and interest signals
-- Best next steps to move forward
-
-CONVERSATION INSIGHTS:
-Provide a brief analysis (2-3 sentences) of:
-- Overall conversation health and momentum
-- Client's buying readiness
-- Key concerns to address
-- Relationship status
-` : ''}
+${hasConversation ? `Also generate 3-5 follow-up suggestions and conversation insights.` : ''}
 
 Return JSON:
 {
   "sentiment": "positive|neutral|negative|urgent|opportunity",
-  "keyPoints": ["detailed point 1", "detailed point 2", "..."],
+  "keyPoints": ["point 1", "point 2"],
   "suggestedReplies": {
-    "professional": "strategic professional reply",
-    "friendly": "warm engaging reply",
-    "confident": "assertive value-driven reply"
-  }${conversationHistory ? `,
-  "followUpSuggestions": ["specific follow-up action 1", "specific follow-up action 2", "..."],
-  "conversationInsights": "brief analysis of conversation health and next steps"` : ''}
- }`;
+    "professional": "reply",
+    "friendly": "reply",
+    "confident": "reply"
+  }${hasConversation ? `,
+  "followUpSuggestions": ["action 1", "action 2"],
+  "conversationInsights": "brief analysis"` : ''}
+}`;
 
     let userContent;
     if (image) {
-      // If image is provided, use vision capability to extract text from image
-      const contextInfo = conversationHistory 
-        ? `Conversation history: ${JSON.stringify(conversationHistory)}. Current message/image context: ${message || 'Analyze WhatsApp screenshot'}`
-        : message || 'Analyze WhatsApp screenshot - remember: LEFT side = client messages, RIGHT side = my messages. Help me reply to the client.';
+      const contextInfo = hasConversation 
+        ? `Conversation history: ${JSON.stringify(conversationHistory)}. Context: ${message || 'Analyze screenshot'}`
+        : message || 'Analyze WhatsApp screenshot - LEFT=client, RIGHT=me. Help me reply.';
       
       userContent = [
-        { 
-          type: "text", 
-          text: `Analyze this WhatsApp screenshot. Remember: LEFT side messages are from the CLIENT (analyze these), RIGHT side messages are from ME (the user). Help me craft a response to the client's latest message. ${contextInfo}` 
-        },
-        { 
-          type: "image_url", 
-          image_url: { url: image } 
-        }
+        { type: "text", text: `Analyze this WhatsApp screenshot. LEFT=CLIENT, RIGHT=ME. ${contextInfo}` },
+        { type: "image_url", image_url: { url: image } }
       ];
     } else {
-      const conversationContext = conversationHistory 
-        ? `Conversation history:\n${conversationHistory.map((msg: any) => `${msg.role}: ${msg.content}`).join('\n')}\n\nLatest client message: "${message}"`
-        : `Analyze this client message and suggest replies: "${message}"`;
+      const conversationContext = hasConversation 
+        ? `Conversation:\n${conversationHistory!.map((msg: { role: string; content: string }) => `${msg.role}: ${msg.content}`).join('\n')}\n\nLatest: "${message}"`
+        : `Analyze this client message: "${message}"`;
       
       userContent = conversationContext;
     }
@@ -197,33 +184,26 @@ Return JSON:
         });
       }
       if (response.status === 402) {
-        return new Response(JSON.stringify({ error: 'Payment required. Please add credits to your workspace.' }), {
+        return new Response(JSON.stringify({ error: 'Payment required. Please add credits.' }), {
           status: 402,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
-      const errorText = await response.text();
-      console.error('AI gateway error:', response.status, errorText);
-      throw new Error('AI gateway error');
+      console.error('AI gateway error:', response.status);
+      throw new Error('Analysis service temporarily unavailable');
     }
 
     const data = await response.json();
-    console.log('AI response:', data);
-    
-    // Extract the content and strip markdown code blocks if present
     let content = data.choices[0].message.content;
-    
-    // Remove markdown code block markers (```json and ```)
     content = content.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
-    
     const aiResponse = JSON.parse(content);
 
     return new Response(JSON.stringify(aiResponse), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (error) {
-    console.error('Error in analyze-message function:', error);
-    return new Response(JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }), {
+    console.error('Error in analyze-message:', error);
+    return new Response(JSON.stringify({ error: 'Analysis failed. Please try again.' }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
